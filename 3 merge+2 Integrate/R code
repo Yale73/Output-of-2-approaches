@@ -1,0 +1,135 @@
+# load the package
+library(Seurat)
+library(cowplot)
+library(gplots)
+library(dplyr)
+
+#load 3 veh data#
+setwd("C:/Users/jbclab/Desktop/yale files")
+VEH1.data <-Read10X(data.dir = "m_VEH_7d_2_VEH2_mex")
+VEH1<- CreateSeuratObject(counts = VEH1.data, project = "VEH1")
+VEH1
+VEH2.data <-Read10X(data.dir = "m_VEH_7d_3_VEH3_mex")
+VEH2<- CreateSeuratObject(counts = VEH2.data, project = "VEH2")
+VEH2
+VEH3.data <-Read10X(data.dir = "m_VEH_7d_4_VEH4_mex")
+VEH3<- CreateSeuratObject(counts = VEH3.data, project = "VEH3")
+VEH3
+
+#merge 3 veh data#
+VEH.big <- merge(VEH1, y = c(VEH2, VEH3), add.cell.ids = c("VEH1", "VEH2", "VEH3"), project = "VEH6")
+VEH.big
+VEH.big[["percent.mt"]] <- PercentageFeatureSet(VEH.big, pattern = "mt-")
+VlnPlot(VEH.big, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+VEH.big <- subset(VEH.big, subset = nFeature_RNA > 200 & percent.mt < 5)
+
+
+#load 3 imq data#
+IMQ1.data <-Read10X(data.dir = "m_IMQ_7d_1_IMQ1_mex")
+IMQ1<- CreateSeuratObject(counts = IMQ1.data, project = "IMQ1")
+IMQ1
+IMQ2.data <-Read10X(data.dir = "m_IMQ_7d_3_IMQ3_mex")
+IMQ2<- CreateSeuratObject(counts = IMQ2.data, project = "IMQ2")
+IMQ2
+IMQ3.data <-Read10X(data.dir = "m_IMQ_7d_6_IMQ6_mex")
+IMQ3<- CreateSeuratObject(counts = IMQ3.data, project = "IMQ3")
+IMQ3
+
+#merge 3 imq data#
+IMQ.big <- merge(IMQ1, y = c(IMQ2, IMQ3), add.cell.ids = c("IMQ1", "IMQ2", "IMQ3"), project = "IMQ6")
+IMQ.big
+IMQ.big[["percent.mt"]] <- PercentageFeatureSet(IMQ.big, pattern = "mt-")
+VlnPlot(IMQ.big, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+IMQ.big <- subset(IMQ.big, subset = nFeature_RNA > 200 & percent.mt < 5)
+
+#Assign the condition and Normalize
+VEH.big$stim <- "VEH"
+VEH.big <- subset(VEH.big, subset = nFeature_RNA > 500)
+VEH.big <- NormalizeData(VEH.big, verbose = FALSE)
+VEH.big <- FindVariableFeatures(VEH.big, selection.method = "vst", nfeatures = 2000)
+
+IMQ.big$stim <- "IMQ"
+IMQ.big <- subset(IMQ.big, subset = nFeature_RNA > 500)
+IMQ.big <- NormalizeData(IMQ.big, verbose = FALSE)
+IMQ.big <- FindVariableFeatures(IMQ.big, selection.method = "vst", nfeatures = 2000)
+
+#Perform integration#
+immune.anchors <- FindIntegrationAnchors(object.list = list(VEH.big, IMQ.big), dims = 1:25)
+immune.combined <- IntegrateData(anchorset = immune.anchors, dims = 1:20)
+
+#Perform an integrated analysis#
+DefaultAssay(immune.combined) <- "integrated"
+# Run the standard workflow for visualization and clustering
+immune.combined <- ScaleData(immune.combined, verbose = FALSE)
+immune.combined <- RunPCA(immune.combined, npcs = 30, verbose = FALSE)
+
+# umap and Clustering
+immune.combined <- RunUMAP(immune.combined, reduction = "pca", dims = 1:20)
+immune.combined <- FindNeighbors(immune.combined, reduction = "pca", dims = 1:20)
+immune.combined <- FindClusters(immune.combined, resolution = 0.8)
+
+
+saveRDS(immune.combined, file= "C:/Users/ASUS/Desktop/IMQ and VEH Integrate -20 clusters.rds")
+
+
+#Identify differentially expressed features (cluster biomarkers)
+DefaultAssay(immune.combined) <- "RNA"
+immune.combined.markers <- FindAllMarkers(immune.combined, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
+write.csv(immune.combined.markers, "I:/Users/ASUS/Desktop/FindAllMarkers-IMQ&VEH-20clusters with RNA.csv")
+
+
+#Tabulate cells by cluster ID, replicate, or both#
+Idents(immune.combined) <- "seurat_clusters"
+table(Idents(immune.combined))
+table(immune.combined$orig.ident)
+prop.table(table(Idents(immune.combined)))
+table(Idents(immune.combined), immune.combined$orig.ident)
+prop.table(table(Idents(immune.combined), immune.combined$orig.ident), margin = 2)
+
+
+#Identify differential expressed genes across conditions#
+DefaultAssay(immune.combined) <- "RNA"
+immune.combined@meta.data$cluster_condition <- paste(immune.combined@meta.data$seurat_clusters, immune.combined@meta.data$stim, sep = "_")
+head(immune.combined@meta.data$cluster_condition)
+Idents(immune.combined) <- immune.combined@meta.data$cluster_condition
+head(Idents(immune.combined))
+cluster0.markers <- FindMarkers(immune.combined, ident.1 = "0_IMQ", ident.2 = "0_VEH", verbose = FALSE)
+write.csv(cluster0.markers, "C:/Users/jbclab/Desktop/0.csv")
+cluster1.markers <- FindMarkers(immune.combined, ident.1 = "1_IMQ", ident.2 = "1_VEH", verbose = FALSE)
+write.csv(cluster1.markers, "C:/Users/jbclab/Desktop/1.csv")
+cluster2.markers <- FindMarkers(immune.combined, ident.1 = "2_IMQ", ident.2 = "2_VEH", verbose = FALSE)
+write.csv(cluster2.markers, "C:/Users/jbclab/Desktop/2.csv")
+cluster3.markers <- FindMarkers(immune.combined, ident.1 = "3_IMQ", ident.2 = "3_VEH", verbose = FALSE)
+write.csv(cluster3.markers, "C:/Users/jbclab/Desktop/3.csv")
+cluster4.markers <- FindMarkers(immune.combined, ident.1 = "4_IMQ", ident.2 = "4_VEH", verbose = FALSE)
+write.csv(cluster4.markers, "C:/Users/jbclab/Desktop/4.csv")
+cluster5.markers <- FindMarkers(immune.combined, ident.1 = "5_IMQ", ident.2 = "5_VEH", verbose = FALSE)
+write.csv(cluster5.markers, "C:/Users/jbclab/Desktop/5.csv")
+cluster6.markers <- FindMarkers(immune.combined, ident.1 = "6_IMQ", ident.2 = "6_VEH", verbose = FALSE)
+write.csv(cluster6.markers, "C:/Users/jbclab/Desktop/6.csv")
+cluster7.markers <- FindMarkers(immune.combined, ident.1 = "7_IMQ", ident.2 = "7_VEH", verbose = FALSE)
+write.csv(cluster7.markers, "C:/Users/jbclab/Desktop/7.csv")
+cluster8.markers <- FindMarkers(immune.combined, ident.1 = "8_IMQ", ident.2 = "8_VEH", verbose = FALSE)
+write.csv(cluster8.markers, "C:/Users/jbclab/Desktop/8.csv")
+cluster9.markers <- FindMarkers(immune.combined, ident.1 = "9_IMQ", ident.2 = "9_VEH", verbose = FALSE)
+write.csv(cluster9.markers, "C:/Users/jbclab/Desktop/9.csv")
+cluster10.markers <- FindMarkers(immune.combined, ident.1 = "10_IMQ", ident.2 = "10_VEH", verbose = FALSE)
+write.csv(cluster10.markers, "C:/Users/jbclab/Desktop/10.csv")
+cluster11.markers <- FindMarkers(immune.combined, ident.1 = "11_IMQ", ident.2 = "11_VEH", verbose = FALSE)
+write.csv(cluster11.markers, "C:/Users/jbclab/Desktop/11.csv")
+cluster12.markers <- FindMarkers(immune.combined, ident.1 = "12_IMQ", ident.2 = "12_VEH", verbose = FALSE)
+write.csv(cluster12.markers, "C:/Users/jbclab/Desktop/12.csv")
+cluster13.markers <- FindMarkers(immune.combined, ident.1 = "13_IMQ", ident.2 = "13_VEH", verbose = FALSE)
+write.csv(cluster13.markers, "C:/Users/jbclab/Desktop/13.csv")
+cluster14.markers <- FindMarkers(immune.combined, ident.1 = "14_IMQ", ident.2 = "14_VEH", verbose = FALSE)
+write.csv(cluster14.markers, "C:/Users/jbclab/Desktop/14.csv")
+cluster15.markers <- FindMarkers(immune.combined, ident.1 = "15_IMQ", ident.2 = "15_VEH", verbose = FALSE)
+write.csv(cluster15.markers, "C:/Users/jbclab/Desktop/15.csv")
+cluster16.markers <- FindMarkers(immune.combined, ident.1 = "16_IMQ", ident.2 = "16_VEH", verbose = FALSE)
+write.csv(cluster16.markers, "C:/Users/jbclab/Desktop/16.csv")
+cluster17.markers <- FindMarkers(immune.combined, ident.1 = "17_IMQ", ident.2 = "17_VEH", verbose = FALSE)
+write.csv(cluster17.markers, "C:/Users/jbclab/Desktop/17.csv")
+cluster18.markers <- FindMarkers(immune.combined, ident.1 = "18_IMQ", ident.2 = "18_VEH", verbose = FALSE)
+write.csv(cluster18.markers, "C:/Users/jbclab/Desktop/18.csv")
+cluster19.markers <- FindMarkers(immune.combined, ident.1 = "19_IMQ", ident.2 = "19_VEH", verbose = FALSE)
+write.csv(cluster19.markers, "C:/Users/jbclab/Desktop/19.csv")
